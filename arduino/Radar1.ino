@@ -1,0 +1,307 @@
+/********************************************************************
+ * PROJET RADAR AVANCÉ - ARDUINO NANO
+ * Capteur: HC-SR04
+ * Servo: SG90
+ * Options: Buzzer, Filtrage, LCD I2C
+ * 
+ * Configuration modulaire - Choisissez vos options ci-dessous
+ ********************************************************************/
+
+// ================= CONFIGURATION =================
+#define USE_BUZZER true          // Activer/Désactiver le buzzer
+#define USE_LCD true            // Activer/Désactiver l'écran LCD I2C
+#define USE_FILTER true         // Activer/Désactiver le filtrage des données
+#define DEBUG_MODE false        // Mode debug série
+
+// ================= LIBRARIES =================
+#include <Servo.h>
+#if USE_LCD
+  #include <Wire.h>
+  #include <LiquidCrystal_I2C.h>
+#endif
+
+// ================= PINS =================
+const int TRIG_PIN = 2;
+const int ECHO_PIN = 3;
+const int SERVO_PIN = 9;
+const int BUZZER_PIN = 8;
+
+// ================= PARAMÈTRES =================
+const int MIN_ANGLE = 0;
+const int MAX_ANGLE = 180;
+const int ANGLE_INCREMENT = 1;
+const int SCAN_DELAY = 15;      // ms entre chaque mesure
+const int ALERT_DISTANCE = 20;  // cm - distance d'alerte
+
+// Filtrage (si USE_FILTER = true)
+const int FILTER_SAMPLES = 5;   // Nombre d'échantillons pour la moyenne
+const float FILTER_ALPHA = 0.3; // Coefficient pour filtre exponentiel (0-1)
+
+// ================= VARIABLES =================
+Servo radarServo;
+#if USE_LCD
+  LiquidCrystal_I2C lcd(0x27, 16, 2); // Adresse I2C commune
+#endif
+
+int currentAngle = 0;
+int angleDirection = 1; // 1 = vers la droite, -1 = vers la gauche
+int rawDistance = 0;
+int filteredDistance = 0;
+float expFilteredDistance = 0;
+int distanceSamples[FILTER_SAMPLES];
+int sampleIndex = 0;
+
+// Statistiques
+unsigned long scanCount = 0;
+int objectsDetected = 0;
+int maxDistance = 0;
+int minDistance = 999;
+
+// ================= FILTRES =================
+void initFilters() {
+  for (int i = 0; i < FILTER_SAMPLES; i++) {
+    distanceSamples[i] = 0;
+  }
+  expFilteredDistance = 0;
+  sampleIndex = 0;
+}
+
+int applyMovingAverage(int newValue) {
+  distanceSamples[sampleIndex] = newValue;
+  sampleIndex = (sampleIndex + 1) % FILTER_SAMPLES;
+  
+  long sum = 0;
+  for (int i = 0; i < FILTER_SAMPLES; i++) {
+    sum += distanceSamples[i];
+  }
+  return sum / FILTER_SAMPLES;
+}
+
+int applyExponentialFilter(int newValue) {
+  expFilteredDistance = (FILTER_ALPHA * newValue) + ((1 - FILTER_ALPHA) * expFilteredDistance);
+  return (int)expFilteredDistance;
+}
+
+int applyFilter(int distance) {
+  if (!USE_FILTER) return distance;
+  
+  // Moyenne mobile
+  int maFiltered = applyMovingAverage(distance);
+  
+  // Filtre exponentiel supplémentaire
+  return applyExponentialFilter(maFiltered);
+}
+
+// ================= FONCTIONS CAPTEUR =================
+int measureDistance() {
+  // Envoi impulsion
+  digitalWrite(TRIG_PIN, LOW);
+  delayMicroseconds(2);
+  digitalWrite(TRIG_PIN, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(TRIG_PIN, LOW);
+  
+  // Lecture écho avec timeout
+  long duration = pulseIn(ECHO_PIN, HIGH, 30000); // Timeout 30ms
+  
+  if (duration == 0) {
+    return 0; // Pas d'écho
+  }
+  
+  // Calcul distance (cm)
+  int distance = duration * 0.034 / 2;
+  
+  // Validation plage
+  if (distance > 400) distance = 400; // HC-SR04 max théorique
+  if (distance < 2) distance = 0;
+  
+  return distance;
+}
+
+void updateStatistics(int distance) {
+  if (distance > 0 && distance <= 400) {
+    objectsDetected++;
+    
+    if (distance > maxDistance) maxDistance = distance;
+    if (distance < minDistance && distance > 0) minDistance = distance;
+  }
+}
+
+// ================= ALERTES =================
+void handleAlerts(int distance) {
+  if (!USE_BUZZER) return;
+  
+  if (distance > 0 && distance <= ALERT_DISTANCE) {
+    // Fréquence variable selon distance
+    int frequency = map(distance, 2, ALERT_DISTANCE, 2000, 800);
+    tone(BUZZER_PIN, frequency, 100);
+    
+    #if DEBUG_MODE
+      Serial.print("ALERTE! Distance: ");
+      Serial.print(distance);
+      Serial.println(" cm");
+    #endif
+  }
+}
+
+// ================= AFFICHAGE LCD =================
+#if USE_LCD
+void updateLCD(int angle, int distance, int filteredDist) {
+  lcd.clear();
+  
+  // Ligne 1: Angle et mode
+  lcd.setCursor(0, 0);
+  lcd.print("A:");
+  lcd.print(angle);
+  lcd.print((char)223); // Degré symbol
+  lcd.print(" D:");
+  lcd.print(distance);
+  lcd.print("cm");
+  
+  // Ligne 2: Informations
+  lcd.setCursor(0, 1);
+  if (USE_FILTER) {
+    lcd.print("F:");
+    lcd.print(filteredDist);
+    lcd.print("cm ");
+  }
+  
+  if (distance > 0 && distance <= ALERT_DISTANCE) {
+    lcd.print("ALERTE!");
+  } else {
+    lcd.print("Scan:");
+    lcd.print(scanCount);
+  }
+}
+#endif
+
+// ================= COMMUNICATION SÉRIE =================
+void sendSerialData(int angle, int rawDist, int filteredDist) {
+  // Format: angle,rawDistance,filteredDistance,alertStatus
+  Serial.print(angle);
+  Serial.print(",");
+  Serial.print(rawDist);
+  Serial.print(",");
+  Serial.print(filteredDist);
+  Serial.print(",");
+  Serial.println((rawDist > 0 && rawDist <= ALERT_DISTANCE) ? "1" : "0");
+  
+  #if DEBUG_MODE
+    if (rawDist > 0) {
+      Serial.print("Angle: ");
+      Serial.print(angle);
+      Serial.print("° - Raw: ");
+      Serial.print(rawDist);
+      Serial.print("cm - Filtered: ");
+      Serial.print(filteredDist);
+      Serial.println("cm");
+    }
+  #endif
+}
+
+// ================= SETUP =================
+void setup() {
+  // Initialisation série
+  Serial.begin(115200);
+  
+  // Configuration pins
+  pinMode(TRIG_PIN, OUTPUT);
+  pinMode(ECHO_PIN, INPUT);
+  #if USE_BUZZER
+    pinMode(BUZZER_PIN, OUTPUT);
+    digitalWrite(BUZZER_PIN, LOW);
+  #endif
+  
+  // Initialisation servo
+  radarServo.attach(SERVO_PIN);
+  radarServo.write(MIN_ANGLE);
+  delay(1000);
+  
+  // Initialisation LCD
+  #if USE_LCD
+    lcd.init();
+    lcd.backlight();
+    lcd.setCursor(0, 0);
+    lcd.print("Radar Arduino");
+    lcd.setCursor(0, 1);
+    lcd.print("Initialisation...");
+    delay(2000);
+    lcd.clear();
+  #endif
+  
+  // Initialisation filtres
+  initFilters();
+  
+  // Message de démarrage
+  #if DEBUG_MODE
+    Serial.println("=== SYSTEME RADAR DEMARRE ===");
+    Serial.print("Filtrage: ");
+    Serial.println(USE_FILTER ? "ACTIVE" : "DESACTIVE");
+    Serial.print("LCD: ");
+    Serial.println(USE_LCD ? "ACTIVE" : "DESACTIVE");
+    Serial.print("Buzzer: ");
+    Serial.println(USE_BUZZER ? "ACTIVE" : "DESACTIVE");
+    Serial.println("Format donnees: angle,raw,filtered,alert");
+  #endif
+  
+  #if USE_LCD
+    lcd.setCursor(0, 0);
+    lcd.print("Systeme Pret!");
+    delay(1000);
+  #endif
+}
+
+// ================= LOOP =================
+void loop() {
+  // Contrôle servo
+  radarServo.write(currentAngle);
+  delay(SCAN_DELAY);
+  
+  // Mesure distance
+  rawDistance = measureDistance();
+  
+  // Application filtre
+  filteredDistance = applyFilter(rawDistance);
+  
+  // Mise à jour statistiques
+  updateStatistics(rawDistance);
+  
+  // Gestion alertes
+  handleAlerts(rawDistance);
+  
+  // Mise à jour affichage
+  #if USE_LCD
+    updateLCD(currentAngle, rawDistance, filteredDistance);
+  #endif
+  
+  // Envoi données série
+  sendSerialData(currentAngle, rawDistance, filteredDistance);
+  
+  // Mise à jour angle
+  currentAngle += angleDirection * ANGLE_INCREMENT;
+  scanCount++;
+  
+  // Changement direction aux limites
+  if (currentAngle >= MAX_ANGLE || currentAngle <= MIN_ANGLE) {
+    angleDirection = -angleDirection;
+    
+    // Affichage statistiques chaque demi-tour
+    #if DEBUG_MODE
+      Serial.println("=== STATISTIQUES ===");
+      Serial.print("Scans: ");
+      Serial.println(scanCount);
+      Serial.print("Objets detectes: ");
+      Serial.println(objectsDetected);
+      Serial.print("Distance max: ");
+      Serial.print(maxDistance);
+      Serial.println(" cm");
+      Serial.print("Distance min: ");
+      Serial.print(minDistance);
+      Serial.println(" cm");
+      Serial.println("====================");
+    #endif
+  }
+  
+  // Petite pause pour stabilité
+  delay(5);
+}
