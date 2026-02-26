@@ -2,12 +2,9 @@
  * PROJET RADAR AVANCÉ - ARDUINO NANO
  * Capteur: HC-SR04
  * Servo: SG90
- * Options: Buzzer, Filtrage, LCD I2C
- * 
- * Configuration modulaire - Choisissez vos options ci-dessous
- ********************************************************************/
+ * Options: Buzzer, Filtrage, LCD I2C ********************************************************************/
 
-// ================= CONFIGURATION =================
+// ======= CONFIGURATIO========
 #define USE_BUZZER true          // Activer/Désactiver le buzzer
 #define USE_LCD true            // Activer/Désactiver l'écran LCD I2C
 #define USE_FILTER true         // Activer/Désactiver le filtrage des données
