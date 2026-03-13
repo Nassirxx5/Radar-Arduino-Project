@@ -27,29 +27,6 @@ LED RGB et afficheur LCD I2C. Visualisation graphique en temps réel avec Proces
 - Breadboard et câbles Dupont
 
 ## 🔌 Schéma de câblage
-
-┌─────────────────────────────────────────────────┐
-│                  ARDUINO NANO                    │
-├─────────────────────────────────────────────────┤
-│                                                   │
-│  PIN   │ COMPOSANT        │ CONNEXION            │
-│────────┼──────────────────┼──────────────────────│
-│  D7    │ HC-SR04          │ Trig                 │
-│  D8    │ HC-SR04          │ Echo                 │
-│  D9    │ Servo            │ Signal               │
-│  D12   │ Buzzer           │ +                    │
-│  D5    │ LED RGB          │ Rouge                │
-│  D3    │ LED RGB          │ Vert                 │
-│  D6    │ LED RGB          │ Bleu                 │
-│  A4    │ LCD I2C          │ SDA                  │
-│  A5    │ LCD I2C          │ SCL                  │
-│  5V    │ Tous             │ Alimentation VCC     │
-│  GND   │ Tous             │ Masse                │
-└─────────────────────────────────────────────────┘
-
-
-## 📋 Version simplifiée
-
 | 🟢 Arduino | 🔵 Composant | 🟠 Connexion |
 |------------|--------------|--------------|
 | **D7** | HC-SR04 | `Trig` |
