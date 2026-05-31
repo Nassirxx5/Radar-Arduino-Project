@@ -27,6 +27,8 @@ LED RGB et afficheur LCD I2C. Visualisation graphique en temps réel avec Proces
 - Breadboard et câbles Dupont
 
 ## 🔌 Schéma de câblage
+<img width="401" height="463" alt="Capture d’écran du 2026-05-15 21-54-43" src="https://github.com/user-attachments/assets/1f466076-05b9-4734-b43c-cd82dbcd290a" />
+
 | 🟢 Arduino | 🔵 Composant | 🟠 Connexion |
 |------------|--------------|--------------|
 | **D7** | HC-SR04 | `Trig` |
